@@ -2,10 +2,6 @@
 
 ## Decision Support Systems Lab
 
-### Experiment Title
-
-Implement Fuzzy Logic for Decision Making
-
 ### Aim
 
 To implement a Fuzzy Logic-based decision support system for temperature control using Python and scikit-fuzzy.
