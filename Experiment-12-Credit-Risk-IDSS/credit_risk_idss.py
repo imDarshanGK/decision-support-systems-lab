@@ -1,108 +1,155 @@
-# Experiment No. 12
-# Intelligent Decision Support System Using Classification
-# Application: Credit Risk Assessment
+# ============================================================
+# EXPERIMENT NO. 12
+# INTELLIGENT DECISION SUPPORT SYSTEM USING CLASSIFICATION
+# Application: Loan Approval Prediction
+# Dataset: loan_approval_dataset(2).csv
+# Platform: Google Colab
+# ============================================================
 
+import os
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 
+from google.colab import files
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.pipeline import Pipeline
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.metrics import (
     accuracy_score,
     confusion_matrix,
-    classification_report
+    classification_report,
+    ConfusionMatrixDisplay
 )
 
-# Step 1: Create the Credit-Risk Dataset
-data = {
-    "Age": [25, 32, 41, 29, 45, 36, 27, 52, 39, 31,
-            48, 26, 43, 35, 50, 30, 37, 42, 28, 46],
+# ------------------------------------------------------------
+# STEP 1: LOAD THE ACTUAL CSV DATASET
+# ------------------------------------------------------------
 
-    "Income": [35000, 60000, 85000, 42000, 95000,
-               70000, 30000, 110000, 78000, 50000,
-               100000, 32000, 90000, 65000, 105000,
-               45000, 72000, 88000, 38000, 92000],
+print("=" * 60)
+print(" INTELLIGENT DSS - LOAN APPROVAL PREDICTION")
+print("=" * 60)
 
-    "CreditScore": [610, 690, 760, 630, 790, 720, 590,
-                    810, 750, 670, 800, 600, 770, 710,
-                    820, 640, 730, 780, 620, 795],
+file_path = "/content/loan_approval_dataset(2).csv"
 
-    "LoanAmount": [15000, 20000, 25000, 18000, 30000,
-                   25000, 12000, 40000, 28000, 18000,
-                   35000, 14000, 30000, 22000, 38000,
-                   17000, 26000, 29000, 15000, 32000],
+if not os.path.exists(file_path):
+    print("\nUpload your loan approval dataset:")
+    uploaded = files.upload()
 
-    "Debt": [8000, 5000, 4000, 10000, 3000, 6000, 12000,
-             2000, 4500, 7000, 2500, 9000, 3500, 5500,
-             2000, 8500, 5000, 3000, 11000, 2800],
-
-    "PreviousDefault": [
-        "Yes", "No", "No", "Yes", "No",
-        "No", "Yes", "No", "No", "No",
-        "No", "Yes", "No", "No", "No",
-        "Yes", "No", "No", "Yes", "No"
-    ],
-
-    "Risk": [
-        "High", "Medium", "Low", "High", "Low",
-        "Low", "High", "Low", "Low", "Medium",
-        "Low", "High", "Low", "Medium", "Low",
-        "High", "Low", "Low", "High", "Low"
+    csv_files = [
+        name for name in uploaded
+        if name.lower().endswith(".csv")
     ]
-}
 
-df = pd.DataFrame(data)
+    if not csv_files:
+        raise ValueError("Please upload a valid CSV file.")
 
-print("=" * 60)
-print("INTELLIGENT DSS - CREDIT RISK ASSESSMENT")
-print("=" * 60)
+    file_path = csv_files[0]
 
-# Step 2: Explore Dataset
-print("\nFirst Five Records:")
-print(df.head())
+df = pd.read_csv(file_path)
 
-print("\nDataset Dimensions:", df.shape)
+# Remove leading/trailing spaces in column names
+df.columns = df.columns.str.strip()
 
-print("\nData Types:")
-print(df.dtypes)
+# Remove extra spaces from text columns
+for col in df.select_dtypes(include="object").columns:
+    df[col] = df[col].str.strip()
 
-print("\nMissing Values:")
+print("\nDataset loaded successfully!")
+print("Dataset dimensions:", df.shape)
+
+print("\nFirst five records:")
+display(df.head())
+
+print("\nColumn names:")
+print(df.columns.tolist())
+
+# ------------------------------------------------------------
+# STEP 2: EXPLORE THE DATASET
+# ------------------------------------------------------------
+
+print("\nDataset information:")
+df.info()
+
+print("\nMissing values:")
 print(df.isnull().sum())
 
-print("\nStatistical Summary:")
-print(df.describe())
+print("\nStatistical summary:")
+display(df.describe(include="all").T)
 
-print("\nRisk Category Distribution:")
-print(df["Risk"].value_counts())
+# ------------------------------------------------------------
+# STEP 3: PREPROCESS THE DATA
+# ------------------------------------------------------------
 
-# Step 3: Encode Categorical Variables
-default_encoder = LabelEncoder()
-risk_encoder = LabelEncoder()
+# Remove duplicate records
+df = df.drop_duplicates().copy()
 
-df["PreviousDefault"] = default_encoder.fit_transform(
-    df["PreviousDefault"]
+# Target column in the actual dataset
+target = "loan_status"
+
+if target not in df.columns:
+    raise ValueError(
+        "Target column 'loan_status' was not found. "
+        "Please verify the uploaded dataset."
+    )
+
+# Remove records without a known target
+df = df.dropna(subset=[target]).copy()
+
+# Remove ID column: it is not a meaningful predictor
+if "loan_id" in df.columns:
+    df = df.drop(columns=["loan_id"])
+
+# Separate input features and target
+X = df.drop(columns=[target])
+y = df[target].astype(str).str.strip()
+
+# Fill missing numeric and categorical values
+numeric_cols = X.select_dtypes(include=np.number).columns.tolist()
+categorical_cols = X.select_dtypes(
+    exclude=np.number
+).columns.tolist()
+
+for col in numeric_cols:
+    X[col] = X[col].fillna(X[col].median())
+
+for col in categorical_cols:
+    mode = X[col].mode()
+    X[col] = X[col].fillna(
+        mode.iloc[0] if not mode.empty else "Unknown"
+    )
+
+print("\nPreprocessing completed.")
+print("Number of records:", len(X))
+print("Number of input features:", X.shape[1])
+
+print("\nLoan status distribution:")
+print(y.value_counts())
+
+# ------------------------------------------------------------
+# STEP 4: ENCODE CATEGORICAL FEATURES
+# ------------------------------------------------------------
+
+# OneHotEncoder handles Graduate/Not Graduate and Yes/No.
+# The encoder is fitted only on training data through the pipeline.
+
+preprocessor = ColumnTransformer(
+    transformers=[
+        (
+            "categorical",
+            OneHotEncoder(handle_unknown="ignore"),
+            categorical_cols
+        )
+    ],
+    remainder="passthrough"
 )
 
-df["Risk"] = risk_encoder.fit_transform(df["Risk"])
+# ------------------------------------------------------------
+# STEP 5: SPLIT INTO TRAINING AND TESTING DATA
+# ------------------------------------------------------------
 
-print("\nEncoded Dataset:")
-print(df.head())
-
-# Step 4: Define Features and Target
-features = [
-    "Age",
-    "Income",
-    "CreditScore",
-    "LoanAmount",
-    "Debt",
-    "PreviousDefault"
-]
-
-X = df[features]
-y = df["Risk"]
-
-# Step 5: Split Dataset into Training and Testing Sets
 X_train, X_test, y_train, y_test = train_test_split(
     X,
     y,
@@ -111,95 +158,146 @@ X_train, X_test, y_train, y_test = train_test_split(
     stratify=y
 )
 
-print("\nTraining Samples:", len(X_train))
-print("Testing Samples:", len(X_test))
+print("\nTraining samples:", len(X_train))
+print("Testing samples:", len(X_test))
 
-# Step 6: Create and Train Decision Tree
-model = DecisionTreeClassifier(
-    criterion="gini",
-    max_depth=4,
-    random_state=42
+# ------------------------------------------------------------
+# STEP 6: CREATE AND TRAIN DECISION TREE CLASSIFIER
+# ------------------------------------------------------------
+
+model = Pipeline(
+    steps=[
+        ("preprocessor", preprocessor),
+        (
+            "classifier",
+            DecisionTreeClassifier(
+                criterion="entropy",
+                max_depth=4,
+                random_state=42
+            )
+        )
+    ]
 )
 
 model.fit(X_train, y_train)
 
-print("\nDecision Tree trained successfully.")
+print("\nDecision Tree model trained successfully!")
 
-# Step 7: Predict Test Data
+# ------------------------------------------------------------
+# STEP 7: PREDICT TEST DATA
+# ------------------------------------------------------------
+
 y_pred = model.predict(X_test)
 
-# Step 8: Evaluate Model
+# ------------------------------------------------------------
+# STEP 8: EVALUATE THE MODEL
+# ------------------------------------------------------------
+
 accuracy = accuracy_score(y_test, y_pred)
+labels = model.named_steps["classifier"].classes_
 
-print(f"\nModel Accuracy: {accuracy:.2%}")
+print("\n" + "=" * 60)
+print(" MODEL EVALUATION")
+print("=" * 60)
 
-risk_labels = risk_encoder.inverse_transform(
-    np.arange(len(risk_encoder.classes_))
-)
-
-print("\nRisk Categories:", list(risk_labels))
+print(f"\nModel Accuracy: {accuracy * 100:.2f}%")
 
 print("\nConfusion Matrix:")
-print(confusion_matrix(
-    y_test,
-    y_pred,
-    labels=np.arange(len(risk_encoder.classes_))
-))
+print("Class order:", list(labels))
+print(confusion_matrix(y_test, y_pred, labels=labels))
 
 print("\nClassification Report:")
-print(classification_report(
+print(
+    classification_report(
+        y_test,
+        y_pred,
+        labels=labels,
+        zero_division=0
+    )
+)
+
+# Plot the confusion matrix
+ConfusionMatrixDisplay.from_predictions(
     y_test,
     y_pred,
-    labels=np.arange(len(risk_encoder.classes_)),
-    target_names=list(risk_labels),
-    zero_division=0
-))
+    labels=labels,
+    display_labels=labels,
+    cmap="Blues",
+    values_format="d"
+)
 
-# Step 9: Enter a New Applicant
+plt.title("Loan Approval - Confusion Matrix")
+plt.tight_layout()
+plt.show()
+
+# ------------------------------------------------------------
+# STEP 9: TEST A NEW LOAN APPLICANT
+# ------------------------------------------------------------
+
+# Example applicant. Values are illustrative and can be changed.
+# All feature names match the actual CSV dataset.
+
 new_applicant = pd.DataFrame([{
-    "Age": 34,
-    "Income": 55000,
-    "CreditScore": 680,
-    "LoanAmount": 20000,
-    "Debt": 7000,
-    "PreviousDefault": default_encoder.transform(["No"])[0]
+    "no_of_dependents": 2,
+    "education": "Graduate",
+    "self_employed": "No",
+    "income_annum": 7000000,
+    "loan_amount": 15000000,
+    "loan_term": 10,
+    "cibil_score": 750,
+    "residential_assets_value": 5000000,
+    "commercial_assets_value": 3000000,
+    "luxury_assets_value": 10000000,
+    "bank_asset_value": 4000000
 }])
 
-print("\nNew Applicant Details:")
-print(new_applicant.to_string(index=False))
+# Match the dataset's exact feature order
+new_applicant = new_applicant.reindex(columns=X.columns)
 
-# Step 10: Predict Credit Risk
-predicted_risk_code = model.predict(new_applicant)[0]
+print("\n" + "=" * 60)
+print(" NEW APPLICANT DETAILS")
+print("=" * 60)
 
-predicted_risk = risk_encoder.inverse_transform(
-    [predicted_risk_code]
-)[0]
+display(new_applicant)
 
+# ------------------------------------------------------------
+# STEP 10: PREDICT LOAN STATUS AND PROBABILITY
+# ------------------------------------------------------------
+
+prediction = model.predict(new_applicant)[0]
 probabilities = model.predict_proba(new_applicant)[0]
 
-class_index = list(model.classes_).index(predicted_risk_code)
-confidence = probabilities[class_index]
+print("\nPredicted Loan Status:", str(prediction).upper())
 
-print("\nPredicted Credit Risk:", predicted_risk)
-print(f"Model Confidence: {confidence:.2%}")
+print("\nPrediction probabilities:")
+for label, probability in zip(labels, probabilities):
+    print(f"{label}: {probability * 100:.2f}%")
 
-print("\nRisk Category Probabilities:")
-for code, probability in zip(model.classes_, probabilities):
-    category = risk_encoder.inverse_transform([code])[0]
-    print(f"{category}: {probability:.2%}")
+# ------------------------------------------------------------
+# STEP 11: DECISION SUPPORT RECOMMENDATION
+# ------------------------------------------------------------
 
-# Step 11: Decision-Support Recommendation
-print("\nDecision-Support Recommendation:")
+print("\n" + "=" * 60)
+print(" DECISION SUPPORT RECOMMENDATION")
+print("=" * 60)
 
-if predicted_risk == "Low":
-    print("The model predicts LOW credit risk.")
-    print("The application may proceed to further eligibility checks.")
-elif predicted_risk == "Medium":
-    print("The model predicts MEDIUM credit risk.")
-    print("Review income, existing debt, and repayment capacity.")
+if str(prediction).strip().lower() == "approved":
+    recommendation = (
+        "The applicant may be considered for approval, "
+        "subject to verification and applicable lending policies."
+    )
 else:
-    print("The model predicts HIGH credit risk.")
-    print("Conduct additional risk assessment before making a decision.")
+    recommendation = (
+        "The applicant requires further review of the "
+        "application and relevant financial information."
+    )
 
-print("\nNote: This educational model does not make a final lending decision.")
-print("\nExperiment completed successfully.")
+print("Recommendation:", recommendation)
+
+print(
+    "\nNote: This is an educational decision-support system. "
+    "It assists human review and must not be used as the sole "
+    "basis for an actual lending decision."
+)
+
+print("\nExperiment No. 12 completed successfully!")
